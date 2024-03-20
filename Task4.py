@@ -1,41 +1,75 @@
-import numpy as np
 from scipy.optimize import linprog
+import numpy as np
+import random
 
-# Coefficient matrix of the equality constraints
+
+# Define RTP scheme
+peak_hours = range(17, 20)
+off_peak_hours = [h for h in range(24) if h not in peak_hours]
+
+
+# Define appliance information
+appliances = {
+    # Non-shiftable appliances
+    "lightning": {"power": 1.5, "hours": range(10, 21)},
+    "refrigerator": {"power": 2, "hours": range(0, 24)},
+    "TV": {"power": 0.6, "hours": range(0, 24)},
+    "electric_stove": {"power": 3.9, "hours": range(0, 24)},
+    # Shiftable appliances
+    "dishwasher": {"power": 1.44, "hours": range(24)},
+    "laundry_machine": {"power": 1.94, "hours": range(24)},
+    "cloth_dryer": {"power": 2.50, "hours": range(24)},
+    "electric_vehicle": {"power": 9.9, "hours": range(24)}
+}
+
+
+# Define pricing curve generation function
+def generate_pricing_curve(peak_hours):
+    random.seed(6)
+    pricing_curve = []
+    for hour in range(24):
+        if hour in peak_hours:
+            pricing_curve.append(random.uniform(1, 1.5))  # Peak hours pricing
+        else:
+            pricing_curve.append(random.uniform(0.5, 1))  # Off-peak hours pricing
+    return pricing_curve
+
+
+pricing_curve = generate_pricing_curve(peak_hours)
+
+
+# Define objective function coefficients (cost per kWh)
+c = np.array(pricing_curve)
+
+
+# Define coefficients for the constraints (power requirements)
 A_eq = []
-for i in range(4):
-    row = [1 if i * 24 <= j < i * 24 + 24 else 0 for j in range(96)]
-    A_eq.append(row)
+b_eq = []
 
-# Right-hand side of the equality constraints
-b_eq = [1.44, 1.94, 2.5, 9.9]
 
-# Coefficient matrix of the inequality constraints
-A_ub = []  
-identity_matrix = np.eye(24)
-for i in range(24):
-    row = np.tile(identity_matrix[i], 4)
-    A_ub.append(row.tolist())
+for appliance in appliances.values():
+    power_usage = [appliance["power"] if hour in appliance["hours"] else 0 for hour in range(24)]
+    A_eq.append(power_usage)
+    b_eq.append(sum(power_usage))
 
-# Right-hand side of the inequality constraints
-hour_power_cap_vector = np.full(24, 7)  # in kWh
-k = np.array([0.77 for _ in range(24)])  # hourly power usage for all non-shiftable appliances
-b_ub = hour_power_cap_vector - k  
 
-# Bounds for each decision variable
-bounds = [(0, None) for _ in range(96)]  # Non-negative bounds for all variables
+# Define peak load constraint coefficients
+A_ub = np.eye(24)
+b_ub = [5] * 24  # Example peak load constraint
 
-# Objective function coefficients
-c = [00.8966700418808315, 0.9109770211598633, 0.7425173139654726, 0.630810741472329, 0.5002258574425356, 0.8314092814418839, 0.7351271285322225, 0.8798653175489466, 0.6865801860369207, 0.8850699179689951, 0.6363490428359854, 0.9009577415813018, 0.864912416311008, 0.7070032205826517, 0.7691526097776384, 0.8410258706443392, 0.5964924378820438, 0.7768075827491421, 0.9025620249244866, 0.632760527219251, 0.9016826548056567, 0.8428449410502205, 0.9221411623980824, 0.6677910089129071] * 4
 
 # Solve the linear programming problem
-result = linprog(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, bounds=bounds, method='highs')
+result = linprog(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub, bounds=(0, None))
 
-# Check if the optimization was successful
+
 if result.success:
-    optimal_solution = result.x
-    optimal_value = result.fun
-    print("Optimal Solution:", optimal_solution)
-    print("Optimal Value of Objective Function:", optimal_value)
+    # Round the optimal energy consumption schedule
+    optimal_schedule = np.round(result.x, decimals=2)
+    total_cost = np.dot(pricing_curve, optimal_schedule)
+   
+    # Print the result
+    print("Optimal energy consumption schedule:")
+    print(optimal_schedule)
+    print("Total cost:", round(result.fun, 2))
 else:
-    print("Optimization failed. Message:", result.message)
+    print("No solution found.")
